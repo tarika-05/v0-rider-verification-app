@@ -5,7 +5,7 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Upload, Camera, ImageIcon, Check, X, FileText, Eye } from "lucide-react"
+import { ArrowLeft, Upload, Camera, ImageIcon, Check, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
@@ -17,6 +17,7 @@ export default function RiderPage() {
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [uploadMethod, setUploadMethod] = useState<"gallery" | "camera" | null>(null)
   const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true) // Add loading state to prevent premature redirects
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [documentCount, setDocumentCount] = useState(0)
@@ -24,17 +25,59 @@ export default function RiderPage() {
 
   useEffect(() => {
     checkAuth()
-    fetchDocumentCount()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("[v0] Auth state changed:", event, session?.user?.email)
+      if (session?.user) {
+        setUser(session.user)
+        setLoading(false)
+        fetchDocumentCount()
+      } else if (event === "SIGNED_OUT") {
+        setUser(null)
+        setLoading(false)
+        router.push("/auth/login")
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   const checkAuth = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
+    console.log("[v0] Checking authentication status")
+
+    try {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession()
+
+      console.log("[v0] Session check result:", { session: session?.user?.email, error })
+
+      if (error) {
+        console.error("[v0] Session error:", error)
+        setLoading(false)
+        router.push("/auth/login")
+        return
+      }
+
+      if (!session?.user) {
+        console.log("[v0] No session found, redirecting to login")
+        setLoading(false)
+        router.push("/auth/login")
+      } else {
+        console.log("[v0] User authenticated:", session.user.email)
+        setUser(session.user)
+        setLoading(false)
+        fetchDocumentCount()
+      }
+    } catch (error) {
+      console.error("[v0] Auth check error:", error)
+      setLoading(false)
       router.push("/auth/login")
-    } else {
-      setUser(user)
     }
   }
 
@@ -48,6 +91,21 @@ export default function RiderPage() {
     } catch (error) {
       console.error("Failed to fetch document count:", error)
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return null // This prevents flash of content before redirect
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,11 +123,6 @@ export default function RiderPage() {
   }
 
   const confirmUpload = async () => {
-    if (!user) {
-      setUploadError("Please log in to upload documents")
-      return
-    }
-
     setUploading(true)
     setUploadError(null)
 
@@ -93,7 +146,6 @@ export default function RiderPage() {
         setShowConfirmation(false)
         setShowUploadOptions(false)
         setUploadMethod(null)
-        fetchDocumentCount() // Refresh document count
       } else {
         setUploadError(data.error || "Failed to upload documents")
       }
@@ -128,7 +180,7 @@ export default function RiderPage() {
             {documentCount > 0 && (
               <Link href="/rider/documents">
                 <Button variant="outline" size="sm">
-                  <FileText className="w-4 h-4 mr-2" />
+                  <Upload className="w-4 h-4 mr-2" />
                   View Documents ({documentCount})
                 </Button>
               </Link>
@@ -158,7 +210,7 @@ export default function RiderPage() {
                     <p className="text-sm text-muted-foreground mb-2">You have {documentCount} documents uploaded</p>
                     <Link href="/rider/documents">
                       <Button variant="outline" size="sm">
-                        <Eye className="w-4 h-4 mr-2" />
+                        <Upload className="w-4 h-4 mr-2" />
                         View My Documents
                       </Button>
                     </Link>

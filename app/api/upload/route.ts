@@ -5,14 +5,6 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     const formData = await request.formData()
     const files = formData.getAll("files") as File[]
     const documentType = (formData.get("documentType") as string) || "identity"
@@ -44,9 +36,10 @@ export async function POST(request: NextRequest) {
     }
 
     const uploadedFiles = []
+    const anonymousRiderId = `anonymous_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     for (const file of files) {
-      const fileName = `${user.id}/${documentType}/${Date.now()}-${file.name}`
+      const fileName = `${anonymousRiderId}/${documentType}/${Date.now()}-${file.name}`
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("rider-documents")
         .upload(fileName, file)
@@ -63,7 +56,7 @@ export async function POST(request: NextRequest) {
       const { data: documentData, error: dbError } = await supabase
         .from("rider_documents")
         .insert({
-          rider_id: user.id,
+          rider_id: anonymousRiderId,
           document_type: documentType,
           file_name: file.name,
           file_url: publicUrl,
@@ -92,7 +85,7 @@ export async function POST(request: NextRequest) {
     }
 
     const qrData = {
-      riderId: user.id,
+      riderId: anonymousRiderId,
       documents: uploadedFiles.map((f) => ({ id: f.id, type: f.documentType, status: f.status })),
       generatedAt: new Date().toISOString(),
     }
@@ -100,7 +93,7 @@ export async function POST(request: NextRequest) {
     const { data: qrCodeData, error: qrError } = await supabase
       .from("rider_qr_codes")
       .insert({
-        rider_id: user.id,
+        rider_id: anonymousRiderId,
         qr_code_data: JSON.stringify(qrData),
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
         is_active: true,
@@ -117,6 +110,7 @@ export async function POST(request: NextRequest) {
       success: true,
       message: "Documents uploaded successfully",
       files: uploadedFiles,
+      riderId: anonymousRiderId, // Return the anonymous rider ID for future reference
       qrCode: qrCodeData ? Buffer.from(JSON.stringify(qrData)).toString("base64") : null,
     })
   } catch (error) {

@@ -24,14 +24,22 @@ export default function LoginPage() {
     setIsLoading(true)
     setError(null)
 
+    console.log("[v0] Starting login process for email:", email)
+
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
+
+      console.log("[v0] Login response:", { data, error })
+
       if (error) throw error
+
+      console.log("[v0] Login successful, redirecting to rider page")
       router.push("/rider")
     } catch (error: unknown) {
+      console.log("[v0] Login error:", error)
       setError(error instanceof Error ? error.message : "An error occurred")
     } finally {
       setIsLoading(false)
