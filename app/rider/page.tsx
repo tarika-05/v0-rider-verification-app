@@ -2,11 +2,13 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Upload, Camera, ImageIcon, Check, X } from "lucide-react"
+import { ArrowLeft, Upload, Camera, ImageIcon, Check, X, FileText, Eye } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
+import Link from "next/link"
 
 export default function RiderPage() {
   const router = useRouter()
@@ -14,33 +16,100 @@ export default function RiderPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [uploadMethod, setUploadMethod] = useState<"gallery" | "camera" | null>(null)
+  const [user, setUser] = useState<any>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [documentCount, setDocumentCount] = useState(0)
+  const supabase = createClient()
+
+  useEffect(() => {
+    checkAuth()
+    fetchDocumentCount()
+  }, [])
+
+  const checkAuth = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      router.push("/auth/login")
+    } else {
+      setUser(user)
+    }
+  }
+
+  const fetchDocumentCount = async () => {
+    try {
+      const response = await fetch("/api/documents")
+      const data = await response.json()
+      if (data.success) {
+        setDocumentCount(data.documents.length)
+      }
+    } catch (error) {
+      console.error("Failed to fetch document count:", error)
+    }
+  }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
     setSelectedFiles(files)
     setShowConfirmation(true)
+    setUploadError(null)
   }
 
   const handleCameraCapture = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
     setSelectedFiles(files)
     setShowConfirmation(true)
+    setUploadError(null)
   }
 
-  const confirmUpload = () => {
-    // Here you would implement the actual upload logic
-    console.log("Uploading files:", selectedFiles)
-    alert("Documents uploaded successfully!")
-    setSelectedFiles([])
-    setShowConfirmation(false)
-    setShowUploadOptions(false)
-    setUploadMethod(null)
+  const confirmUpload = async () => {
+    if (!user) {
+      setUploadError("Please log in to upload documents")
+      return
+    }
+
+    setUploading(true)
+    setUploadError(null)
+
+    try {
+      const formData = new FormData()
+      selectedFiles.forEach((file) => {
+        formData.append("files", file)
+      })
+      formData.append("documentType", "identity") // Default document type
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        alert("Documents uploaded successfully!")
+        setSelectedFiles([])
+        setShowConfirmation(false)
+        setShowUploadOptions(false)
+        setUploadMethod(null)
+        fetchDocumentCount() // Refresh document count
+      } else {
+        setUploadError(data.error || "Failed to upload documents")
+      }
+    } catch (error) {
+      console.error("Upload error:", error)
+      setUploadError("Failed to upload documents. Please try again.")
+    } finally {
+      setUploading(false)
+    }
   }
 
   const cancelUpload = () => {
     setSelectedFiles([])
     setShowConfirmation(false)
     setUploadMethod(null)
+    setUploadError(null)
   }
 
   return (
@@ -48,12 +117,22 @@ export default function RiderPage() {
       {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => router.push("/")} className="flex items-center gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              Back to Home
-            </Button>
-            <h1 className="text-2xl font-bold text-foreground">Rider Portal</h1>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="sm" onClick={() => router.push("/")} className="flex items-center gap-2">
+                <ArrowLeft className="w-4 h-4" />
+                Back to Home
+              </Button>
+              <h1 className="text-2xl font-bold text-foreground">Rider Portal</h1>
+            </div>
+            {documentCount > 0 && (
+              <Link href="/rider/documents">
+                <Button variant="outline" size="sm">
+                  <FileText className="w-4 h-4 mr-2" />
+                  View Documents ({documentCount})
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -74,8 +153,19 @@ export default function RiderPage() {
                 <p className="text-muted-foreground mb-8">
                   Upload your driving license, registration certificate, and other required documents
                 </p>
+                {documentCount > 0 && (
+                  <div className="mb-6 p-4 bg-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-2">You have {documentCount} documents uploaded</p>
+                    <Link href="/rider/documents">
+                      <Button variant="outline" size="sm">
+                        <Eye className="w-4 h-4 mr-2" />
+                        View My Documents
+                      </Button>
+                    </Link>
+                  </div>
+                )}
                 <Button onClick={() => setShowUploadOptions(true)} className="w-full max-w-sm">
-                  Upload Documents
+                  Upload More Documents
                 </Button>
               </CardContent>
             </Card>
@@ -95,7 +185,7 @@ export default function RiderPage() {
                     <input
                       type="file"
                       multiple
-                      accept="image/*"
+                      accept="image/*,application/pdf"
                       onChange={handleFileSelect}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       id="gallery-upload"
@@ -145,6 +235,12 @@ export default function RiderPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
+                {uploadError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm text-red-600">{uploadError}</p>
+                  </div>
+                )}
+
                 <div>
                   <h3 className="font-semibold text-foreground mb-3">Selected Files ({selectedFiles.length})</h3>
                   <div className="space-y-2">
@@ -159,11 +255,16 @@ export default function RiderPage() {
                 </div>
 
                 <div className="flex gap-3">
-                  <Button onClick={confirmUpload} className="flex-1">
+                  <Button onClick={confirmUpload} className="flex-1" disabled={uploading}>
                     <Check className="w-4 h-4 mr-2" />
-                    Confirm Upload
+                    {uploading ? "Uploading..." : "Confirm Upload"}
                   </Button>
-                  <Button variant="outline" onClick={cancelUpload} className="flex-1 bg-transparent">
+                  <Button
+                    variant="outline"
+                    onClick={cancelUpload}
+                    className="flex-1 bg-transparent"
+                    disabled={uploading}
+                  >
                     <X className="w-4 h-4 mr-2" />
                     Cancel
                   </Button>
